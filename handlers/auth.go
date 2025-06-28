@@ -143,7 +143,23 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.DB.QueryRow("INSERT INTO users(name, email, password) VALUES($1, $2, $3) RETURNING id",
+	tx, err := h.DB.Begin()
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	err = tx.QueryRow("INSERT INTO users(name, email, password) VALUES($1, $2, $3) RETURNING id",
 		user.Name, user.Email, hashPassword).Scan(&user.Id)
 
 	if err != nil {
@@ -152,7 +168,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var roleID string
-	err = h.DB.QueryRow("SELECT id FROM roles WHERE name = 'user'").Scan(&roleID)
+	err = tx.QueryRow("SELECT id FROM roles WHERE name = 'user'").Scan(&roleID)
 
 	if err != nil {
 		log.Println(err.Error())
@@ -160,7 +176,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.DB.Query("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", user.Id, roleID)
+	_, err = tx.Exec("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", user.Id, roleID)
 
 	if err != nil {
 		log.Println(err.Error())
@@ -247,7 +263,23 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.DB.QueryRow("INSERT INTO users(name, email, password, created_by) VALUES($1, $2, $3, $4) RETURNING id",
+	tx, err := h.DB.Begin()
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	err = tx.QueryRow("INSERT INTO users(name, email, password, created_by) VALUES($1, $2, $3, $4) RETURNING id",
 		user.Name, user.Email, hashPassword, userID).Scan(&user.Id)
 
 	if err != nil {
@@ -257,7 +289,7 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var roleID string
-	err = h.DB.QueryRow("SELECT id FROM roles WHERE name = $1", user.Role).Scan(&roleID)
+	err = tx.QueryRow("SELECT id FROM roles WHERE name = $1", user.Role).Scan(&roleID)
 
 	if err != nil {
 		log.Println(err.Error())
@@ -265,8 +297,7 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.DB.Query("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", user.Id, roleID)
-
+	_, err = tx.Exec("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", user.Id, roleID)
 	if err != nil {
 		log.Println(err.Error())
 		http.Error(w, "wrong in assigning roles(internal error)", http.StatusInternalServerError)
