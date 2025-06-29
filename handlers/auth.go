@@ -357,13 +357,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate the refresh token
-	_, err = jwt_utils.ValidateJWT(refreshToken)
-	if err != nil {
-		http.Error(w, "invalid refresh token", http.StatusUnauthorized)
-		return
-	}
-
 	// Set refresh token in a secure HTTP-only cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "refresh_token",
