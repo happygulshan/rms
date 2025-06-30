@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,32 +11,7 @@ import (
 
 	"strconv"
 	"rms/utils"
-	// "strings"
 )
-
-// func fetchUserRoles(db *sql.DB, userID string) ([]string, error) {
-// 	query := `
-// 		SELECT r.name
-// 		FROM user_roles ur
-// 		JOIN roles r ON ur.role_id = r.id
-// 		WHERE ur.user_id = $1
-// 	`
-// 	rows, err := db.Query(query, userID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer rows.Close()
-
-// 	var roles []string
-// 	for rows.Next() {
-// 		var role string
-// 		if err := rows.Scan(&role); err != nil {
-// 			return nil, err
-// 		}
-// 		roles = append(roles, role)
-// 	}
-// 	return roles, nil
-// }
 
 func (h *Handler) CreateDish(w http.ResponseWriter, r *http.Request) {
 
@@ -90,7 +64,11 @@ func (h *Handler) CreateDish(w http.ResponseWriter, r *http.Request) {
 	dish.RestaurantID = resID
 	dish.CreatedBy = userID
 
-	json.NewEncoder(w).Encode(dish)
+	err = json.NewEncoder(w).Encode(dish)
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) GetAllDishes(w http.ResponseWriter, r *http.Request) {
@@ -143,10 +121,16 @@ func (h *Handler) GetAllDishes(w http.ResponseWriter, r *http.Request) {
 
 	// Send back the tasks
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"restaurants": dishes,
 		"page":        page,
 		"limit":       limit,
 		"user_id":     userID,
 	})
+
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
+	
 }

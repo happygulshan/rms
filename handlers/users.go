@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"rms/middleware"
@@ -29,5 +28,9 @@ func (h *Handler) CreateAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(add)
+	err = json.NewEncoder(w).Encode(add)
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }

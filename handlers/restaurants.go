@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -62,12 +61,17 @@ func (h *Handler) GetAllRestaurants(w http.ResponseWriter, r *http.Request) {
 
 	// Send back the tasks
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"restaurants": restaurants,
 		"page":        page,
 		"limit":       limit,
 		"user_id":     userID,
 	})
+
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func RolesForCreation() []string {
@@ -102,7 +106,11 @@ func (h *Handler) CreateRestaurant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(restaurant)
+	err = json.NewEncoder(w).Encode(restaurant)
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) CalculateDistance(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +149,11 @@ func (h *Handler) CalculateDistance(w http.ResponseWriter, r *http.Request) {
 
 	dist := utils.HaversineDistance(resLat, resLng, addLat, addLng)
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"distance": dist,
 	})
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }

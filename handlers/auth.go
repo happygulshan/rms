@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"rms/models"
 	"strings"
@@ -18,7 +17,11 @@ import (
 	"rms/utils"
 
 	"golang.org/x/crypto/bcrypt"
+
+	jsoniter "github.com/json-iterator/go"
 )
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type Handler struct {
 	DB *sql.DB
@@ -127,7 +130,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1", user.Email).Scan(&user.Id)
+	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1 AND archived_at IS NULL", user.Email).Scan(&user.Id)
 
 	if err == nil {
 		http.Error(w, "email already registered", http.StatusBadRequest)
@@ -184,10 +187,14 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{
+	err = json.NewEncoder(w).Encode(map[string]string{
 		"msg": "user registered successfully. Please login again to use",
 	})
 
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +254,7 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1", user.Email).Scan(&user.Id)
+	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1 AND archived_at IS NULL", user.Email).Scan(&user.Id)
 
 	if err == nil {
 		http.Error(w, "email already registered", http.StatusBadRequest)
@@ -306,11 +313,14 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	msg := "one " + user.Role + " registered successfully"
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"msg":     msg,
 		"details": user,
 	})
-
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -328,7 +338,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var hashedPassword string
 
 	// Only fetch hashed password
-	err := h.DB.QueryRow("SELECT id, name, email, password FROM users WHERE email=$1", req.Email).
+	err := h.DB.QueryRow("SELECT id, name, email, password FROM users WHERE email=$1 AND archived_at IS NULL", req.Email).
 		Scan(&user.Id, &user.Name, &user.Email, &hashedPassword)
 
 	if err != nil {
@@ -369,10 +379,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Return token to client
-	json.NewEncoder(w).Encode(map[string]string{
+	err = json.NewEncoder(w).Encode(map[string]string{
 		"access_token": accessToken,
 		"msg":          "Login Successful",
 	})
+
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
