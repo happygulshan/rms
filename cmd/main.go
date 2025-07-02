@@ -27,7 +27,7 @@ func main() {
 	db.RunMigrations(database)
 
 	if err != nil {
-		log.Fatalf("%w", err)
+		log.Fatalf("%v", err)
 	}
 
 	r := server.InitRoutes(database)

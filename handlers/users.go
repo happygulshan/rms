@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"rms/dbhelper"
 	"rms/middleware"
 	"rms/models"
 )
@@ -15,18 +16,18 @@ func (h *Handler) CreateAddress(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+	add.UserID = userID
 
-	err := h.DB.QueryRow("INSERT INTO addresses (user_id, lat, lng) VALUES($1::uuid, $2, $3) RETURNING id",
-		userID, add.Lat, add.Lng).Scan(&add.Id)
-
-	// default label is home
-	add.Label = models.Home
+	err := dbhelper.CreateAddress(h.DB, &add)
 
 	if err != nil {
 		log.Println(err.Error())
 		http.Error(w, "failed to create address", http.StatusInternalServerError)
 		return
 	}
+
+	// default label is home
+	add.Label = models.Home
 
 	err = json.NewEncoder(w).Encode(add)
 	if err != nil {

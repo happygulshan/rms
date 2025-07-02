@@ -2,6 +2,8 @@ package utils
 
 import (
 	"math"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 var RolePriorityMap = map[string]int{
@@ -61,4 +63,9 @@ func HaversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 
 func degreesToRadians(deg float64) float64 {
 	return deg * math.Pi / 180
+}
+
+func HashPassword(password string) (string, error) {
+    hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    return string(hashed), err
 }
