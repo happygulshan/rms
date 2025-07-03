@@ -2,16 +2,16 @@ package models
 
 import "time"
 
-type Users struct {
-	Id        string    `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Password  string    `json:"password"`
-	CreatedAt time.Time `json:"created_at"`
-	CreatedBy string    `json:"created_by"`
-}
+// type Users struct {
+// 	Id        string    `json:"id"`
+// 	Name      string    `json:"name"`
+// 	Email     string    `json:"email"`
+// 	Password  string    `json:"password"`
+// 	CreatedAt time.Time `json:"created_at"`
+// 	CreatedBy string    `json:"created_by"`
+// }
 
-type ProtectedUsers struct {
+type Users struct {
 	Id        string    `json:"id"`
 	Name      string    `json:"name"`
 	Email     string    `json:"email"`

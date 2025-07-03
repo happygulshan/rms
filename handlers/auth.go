@@ -2,10 +2,9 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"rms/models"
-	"strings"
+	"rms/services"
 	"time"
 
 	"log"
@@ -17,43 +16,17 @@ import (
 
 	"rms/utils"
 
+	"rms/dbhelper"
+
 	"golang.org/x/crypto/bcrypt"
+
+	jsoniter "github.com/json-iterator/go"
 )
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type Handler struct {
 	DB *sql.DB
-}
-
-func (h *Handler) GetUserRoles(id string) []string {
-	//Fetch role names for the user
-	query := `
-		SELECT r.name 
-		FROM user_roles ur
-		JOIN roles r ON ur.role_id = r.id
-		WHERE ur.user_id = $1
-	`
-
-	rows, err := h.DB.Query(query, id)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	var userRoles []string
-	for rows.Next() {
-		var role string
-		if err := rows.Scan(&role); err != nil {
-			return nil
-		}
-		userRoles = append(userRoles, role)
-	}
-	return userRoles
-
-}
-
-// Simple email validation but need complex regex for production
-func isValidEmail(email string) bool {
-	return strings.Contains(email, "@") && strings.Contains(email, ".")
 }
 
 // func GetMaxPriority(userRoles []string) int {
@@ -78,7 +51,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userRoles := h.GetUserRoles(userID)
+	userRoles := services.GetUserRoles(h.DB, userID)
 	access_token, err := jwt_utils.GenerateAccessJWT(userID, userRoles)
 	if err != nil {
 		http.Error(w, "failed to generate login access token", http.StatusInternalServerError)
@@ -101,43 +74,21 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//basic simple validation
-	if user.Name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
-		return
-	}
-	if user.Email == "" {
-		http.Error(w, "email is required", http.StatusBadRequest)
-		return
-	}
-	if user.Password == "" {
-		http.Error(w, "password is required", http.StatusBadRequest)
+	if err := utils.ValidateUserInput(&user); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Validate email format (simple regex)
-	if !isValidEmail(user.Email) {
-		http.Error(w, "invalid email format", http.StatusBadRequest)
-		return
-	}
-
-	// Validate password strength
-	if len(user.Password) < 8 {
-		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
-		return
-	}
-
-	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1", user.Email).Scan(&user.Id)
-
-	if err == nil {
-		http.Error(w, "email already registered", http.StatusBadRequest)
-		return
-	} else if err != sql.ErrNoRows {
+	taken, err := dbhelper.IsEmailTaken(h.DB, user.Email)
+	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
+	} else if taken {
+		http.Error(w, "email already registered", http.StatusBadRequest)
+		return
 	}
 
-	hashPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	hash, err := utils.HashPassword(user.Password)
 	if err != nil {
 		http.Error(w, "error in hashing password", http.StatusInternalServerError)
 		return
@@ -148,51 +99,29 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
-		} else {
-			err = tx.Commit()
-		}
-	}()
 
-	err = tx.QueryRow("INSERT INTO users(name, email, password) VALUES($1, $2, $3) RETURNING id",
-		user.Name, user.Email, hashPassword).Scan(&user.Id)
+	defer dbhelper.TxFinalizer(tx, &err)
+
+	err = dbhelper.CreateUserWithRole(tx, &user, hash, "user", "")
 
 	if err != nil {
 		http.Error(w, "failed to register user", http.StatusInternalServerError)
 		return
 	}
 
-	var roleID string
-	err = tx.QueryRow("SELECT id FROM roles WHERE name = 'user'").Scan(&roleID)
-
-	if err != nil {
-		log.Println(err.Error())
-		http.Error(w, "something wrong with server", http.StatusInternalServerError)
-		return
-	}
-
-	_, err = tx.Exec("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", user.Id, roleID)
-
-	if err != nil {
-		log.Println(err.Error())
-		http.Error(w, "wrong in assigning roles(internal error)", http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]string{
+	err = json.NewEncoder(w).Encode(map[string]string{
 		"msg": "user registered successfully. Please login again to use",
 	})
 
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 
-	var user models.ProtectedUsers
+	var user models.Users
 
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "wrong json data", http.StatusBadRequest)
@@ -200,28 +129,8 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//basic input data simple validation
-	if user.Name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
-		return
-	}
-	if user.Email == "" {
-		http.Error(w, "email is required", http.StatusBadRequest)
-		return
-	}
-	if user.Password == "" {
-		http.Error(w, "password is required", http.StatusBadRequest)
-		return
-	}
-
-	// Validate email format (simple regex)
-	if !isValidEmail(user.Email) {
-		http.Error(w, "invalid email format", http.StatusBadRequest)
-		return
-	}
-
-	// Validate password strength
-	if len(user.Password) < 8 {
-		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
+	if err := utils.ValidateProtectedUserInput(&user); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -247,17 +156,16 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.DB.QueryRow("SELECT id FROM users WHERE email = $1", user.Email).Scan(&user.Id)
-
-	if err == nil {
-		http.Error(w, "email already registered", http.StatusBadRequest)
-		return
-	} else if err != sql.ErrNoRows {
+	taken, err := dbhelper.IsEmailTaken(h.DB, user.Email)
+	if err != nil {
 		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	} else if taken {
+		http.Error(w, "email already registered", http.StatusBadRequest)
 		return
 	}
 
-	hashPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	hash, err := utils.HashPassword(user.Password)
 	if err != nil {
 		http.Error(w, "error in hashing password", http.StatusInternalServerError)
 		return
@@ -268,81 +176,50 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
-		} else {
-			err = tx.Commit()
-		}
-	}()
 
-	err = tx.QueryRow("INSERT INTO users(name, email, password, created_by) VALUES($1, $2, $3, $4) RETURNING id",
-		user.Name, user.Email, hashPassword, userID).Scan(&user.Id)
+	defer dbhelper.TxFinalizer(tx, &err)
+
+	err = dbhelper.CreateUserWithRole(tx, &user, hash, user.Role, userID)
 
 	if err != nil {
-		log.Println(err.Error())
 		http.Error(w, "failed to register user", http.StatusInternalServerError)
-		return
-	}
-
-	var roleID string
-	err = tx.QueryRow("SELECT id FROM roles WHERE name = $1", user.Role).Scan(&roleID)
-
-	if err != nil {
-		log.Println(err.Error())
-		http.Error(w, "something wrong with server", http.StatusInternalServerError)
-		return
-	}
-
-	_, err = tx.Exec("INSERT INTO user_roles(user_id, role_id) VALUES($1, $2)", user.Id, roleID)
-	if err != nil {
-		log.Println(err.Error())
-		http.Error(w, "wrong in assigning roles(internal error)", http.StatusInternalServerError)
 		return
 	}
 
 	msg := "one " + user.Role + " registered successfully"
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"msg":     msg,
 		"details": user,
 	})
-
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var user models.Users
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	var user models.Users
-	var hashedPassword string
-
-	// Only fetch hashed password
-	err := h.DB.QueryRow("SELECT id, name, email, password FROM users WHERE email=$1", req.Email).
-		Scan(&user.Id, &user.Name, &user.Email, &hashedPassword)
-
+	givenPass := user.Password
+	err := dbhelper.GetUserDetails(h.DB, &user)
 	if err != nil {
 		http.Error(w, "invalid email or password", http.StatusUnauthorized)
 		return
 	}
 
 	// Compare the provided password with the hashed one
-	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(givenPass)); err != nil {
 		http.Error(w, "invalid email or password", http.StatusUnauthorized)
 		return
 	}
 
-	userRoles := h.GetUserRoles(user.Id)
+	userRoles := services.GetUserRoles(h.DB, user.Id)
 	accessToken, err := jwt_utils.GenerateAccessJWT(user.Id, userRoles)
 	log.Println(err)
 	if err != nil {
@@ -369,10 +246,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Return token to client
-	json.NewEncoder(w).Encode(map[string]string{
+	err = json.NewEncoder(w).Encode(map[string]string{
 		"access_token": accessToken,
 		"msg":          "Login Successful",
 	})
+
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"database/sql"
-	"fmt"
 	"log"
 	"net/http"
 	"rms/db"
@@ -10,20 +8,6 @@ import (
 
 	"github.com/joho/godotenv"
 )
-
-func SeedRoles(db *sql.DB) error {
-	query := `INSERT INTO roles (name, priority) VALUES
-		('admin', 3),
-		('subadmin', 2),
-		('user', 1)
-		ON CONFLICT (name) DO NOTHING;
-		`
-	_, err := db.Query(query)
-	if err != nil {
-		return fmt.Errorf("error in seeding roles table %w", err)
-	}
-	return nil
-}
 
 func main() {
 
@@ -41,10 +25,9 @@ func main() {
 	defer database.Close()
 
 	db.RunMigrations(database)
-	err = SeedRoles(database)
 
 	if err != nil {
-		log.Fatalf("%w", err)
+		log.Fatalf("%v", err)
 	}
 
 	r := server.InitRoutes(database)

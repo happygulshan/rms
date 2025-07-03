@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
+	"rms/dbhelper"
 	"rms/middleware"
 	"rms/models"
 	"rms/utils"
@@ -32,25 +30,13 @@ func (h *Handler) GetAllRestaurants(w http.ResponseWriter, r *http.Request) {
 	offset := (page - 1) * limit
 
 	userID := middleware.GetUserID(r)
-	rows, err := h.DB.Query("SELECT id, name, description, lat, lng, created_at, created_by FROM restaurants ORDER BY created_at DESC LIMIT $1 OFFSET $2", limit, offset)
+
+	restaurants, err := dbhelper.GetAllRestaurants(h.DB, limit, offset)
+
 	if err != nil {
-		fmt.Println(err.Error())
 		http.Error(w, "failed to fetch restaurants", http.StatusInternalServerError)
 		return
-	}
 
-	defer rows.Close()
-
-	var restaurants []models.Restaurant
-
-	for rows.Next() {
-		var restaurant models.Restaurant
-		if err := rows.Scan(&restaurant.ID, &restaurant.Name, &restaurant.Description, &restaurant.Lat, &restaurant.Lng, &restaurant.CreatedAt, &restaurant.CreatedBy); err != nil {
-			log.Println(err.Error())
-			http.Error(w, "failed to scan restaurant", http.StatusInternalServerError)
-			return
-		}
-		restaurants = append(restaurants, restaurant)
 	}
 
 	// Handle case where no rows matched
@@ -62,12 +48,17 @@ func (h *Handler) GetAllRestaurants(w http.ResponseWriter, r *http.Request) {
 
 	// Send back the tasks
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"restaurants": restaurants,
 		"page":        page,
 		"limit":       limit,
 		"user_id":     userID,
 	})
+
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func RolesForCreation() []string {
@@ -75,8 +66,6 @@ func RolesForCreation() []string {
 }
 
 func (h *Handler) CreateRestaurant(w http.ResponseWriter, r *http.Request) {
-
-	userID := middleware.GetUserID(r)
 
 	userRoles := middleware.GetUserRoles(r)
 
@@ -88,21 +77,27 @@ func (h *Handler) CreateRestaurant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//authorized user for rest. creation:
+	//authorized user creating rest.:
 	var restaurant models.Restaurant
 	if err := json.NewDecoder(r.Body).Decode(&restaurant); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	err := h.DB.QueryRow("INSERT INTO restaurants (Name, description, lat, lng, created_by) VALUES($1, $2, $3, $4, $5) RETURNING id",
-		restaurant.Name, restaurant.Description, restaurant.Lat, restaurant.Lng, userID).Scan(&restaurant.ID)
+
+	restaurant.CreatedBy = middleware.GetUserID(r)
+
+	err := dbhelper.CreateRestaurant(h.DB, &restaurant)
 
 	if err != nil {
-		http.Error(w, "failed to create task", http.StatusInternalServerError)
+		http.Error(w, "failed to create restaurant", http.StatusInternalServerError)
 		return
 	}
 
-	json.NewEncoder(w).Encode(restaurant)
+	err = json.NewEncoder(w).Encode(restaurant)
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) CalculateDistance(w http.ResponseWriter, r *http.Request) {
@@ -110,29 +105,27 @@ func (h *Handler) CalculateDistance(w http.ResponseWriter, r *http.Request) {
 	addID := r.URL.Query().Get("add_id")
 
 	userID := middleware.GetUserID(r)
-	var addUserId string
-	err := h.DB.QueryRow("SELECT user_id FROM addresses WHERE id = $1", addID).Scan(&addUserId)
-
+	
+	// 
+	userIDAdd, err := dbhelper.GetUserID(h.DB, addID)
+	
 	if err != nil {
-		http.Error(w, "wrong address id", http.StatusBadRequest)
+		http.Error(w, "invalid add id", http.StatusBadRequest)
 		return
 	}
-
-	if userID != addUserId {
+	if userID != userIDAdd {
 		http.Error(w, "no authorization for this user address", http.StatusUnauthorized)
 		return
 	}
 
-	var resLat, resLng float64
-	err = h.DB.QueryRow("SELECT lat, lng FROM restaurants WHERE id = $1", resID).Scan(&resLat, &resLng)
+	resLat, resLng, err := dbhelper.GetLatAndLngRest(h.DB, resID)
 
 	if err != nil {
 		http.Error(w, "invalid res id", http.StatusBadRequest)
 		return
 	}
 
-	var addLat, addLng float64
-	err = h.DB.QueryRow("SELECT lat, lng FROM addresses WHERE id = $1", addID).Scan(&addLat, &addLng)
+	addLat, addLng, err := dbhelper.GetLatAndLngUser(h.DB, addID)
 
 	if err != nil {
 		http.Error(w, "invalid add id", http.StatusBadRequest)
@@ -141,7 +134,11 @@ func (h *Handler) CalculateDistance(w http.ResponseWriter, r *http.Request) {
 
 	dist := utils.HaversineDistance(resLat, resLng, addLat, addLng)
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"distance": dist,
 	})
+	if err != nil {
+		http.Error(w, "error in encoding data", http.StatusInternalServerError)
+		return
+	}
 }

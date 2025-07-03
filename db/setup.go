@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -11,9 +14,17 @@ import (
 var DB *sql.DB
 
 func InitDB() (*sql.DB, error) {
+	typeOFDB := os.Getenv("DB")
+	host := os.Getenv("HOST")
+	user := os.Getenv("DB_USER")
+	name := os.Getenv("DB_NAME")
+	pass := os.Getenv("DB_PASS")
+	port := os.Getenv("DB_PORT")
 
-	connStr := "postgres://postgres:gulshan@localhost:5432/rmsappdb?sslmode=disable"
-	db, err := sql.Open("postgres", connStr)
+	var connStr strings.Builder
+
+	fmt.Fprintf(&connStr, "%s://%s:%s@%s:%s/%s?sslmode=disable", typeOFDB, user, pass, host, port, name)
+	db, err := sql.Open("postgres", connStr.String())
 
 	if err != nil {
 		return nil, fmt.Errorf("error in opening db %w", err)
