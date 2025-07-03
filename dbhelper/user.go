@@ -41,8 +41,15 @@ func CreateUserWithRole(tx *sql.Tx, user *models.Users, hashedPassword, role, cr
 
 func GetUserDetails(db *sql.DB, user *models.Users) error {
 	// fetching detail of given user
-	err := db.QueryRow("SELECT id, name, email, password FROM users WHERE email=$1 AND archived_at IS NULL", user.Email).
-		Scan(&user.Id, &user.Name, &user.Email, &user.Password)
+	err := db.QueryRow(`SELECT 
+    u.id, u.name, u.email, u.password,
+    r.name as role_name
+	FROM users u
+	LEFT JOIN user_roles ur ON ur.user_id = u.id
+	LEFT JOIN roles r ON ur.role_id = r.id
+	WHERE u.email = $1 AND r.name = $2 AND u.archived_at IS NULL;
+`, user.Email, user.Role).
+		Scan(&user.Id, &user.Name, &user.Email, &user.Password, &user.Role)
 	if err != nil {
 		return err
 	}
@@ -59,7 +66,7 @@ func GetUserID(db *sql.DB, addID string) (string, error) {
 	return userIDAdd, nil
 }
 
-func GetLatAndLngUser(db *sql.DB, addID string)(float64, float64, error) {
+func GetLatAndLngUser(db *sql.DB, addID string) (float64, float64, error) {
 
 	var addLat, addLng float64
 	err := db.QueryRow("SELECT lat, lng FROM addresses WHERE id = $1", addID).Scan(&addLat, &addLng)

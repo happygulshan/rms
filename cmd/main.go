@@ -12,7 +12,6 @@ import (
 func main() {
 
 	err := godotenv.Load("../.env")
-
 	if err != nil {
 		log.Println("error with env loading")
 	}
@@ -35,5 +34,4 @@ func main() {
 	log.Println("Server starting on :8080")
 
 	http.ListenAndServe(":8080", r)
-
 }
