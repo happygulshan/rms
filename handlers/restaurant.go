@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"rms/dbhelper"
 	"rms/middleware"
@@ -67,12 +68,12 @@ func RolesForCreation() []string {
 
 func (h *Handler) CreateRestaurant(w http.ResponseWriter, r *http.Request) {
 
-	userRoles := middleware.GetUserRoles(r)
+	userRole := middleware.GetUserRole(r)
 
 	// logged in user priority
-	userPriority := utils.GetUserPriority(userRoles)
-
+	userPriority := utils.RolePriorityMap[userRole]
 	if userPriority < 2 {
+		fmt.Println(userPriority)
 		http.Error(w, "forbidden: not authorized to create restaurant", http.StatusForbidden)
 		return
 	}
@@ -105,10 +106,10 @@ func (h *Handler) CalculateDistance(w http.ResponseWriter, r *http.Request) {
 	addID := r.URL.Query().Get("add_id")
 
 	userID := middleware.GetUserID(r)
-	
-	// 
+
+	//
 	userIDAdd, err := dbhelper.GetUserID(h.DB, addID)
-	
+
 	if err != nil {
 		http.Error(w, "invalid add id", http.StatusBadRequest)
 		return

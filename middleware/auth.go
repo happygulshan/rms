@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"rms/jwt_utils"
 	"strings"
@@ -11,7 +12,7 @@ import (
 type key string
 
 const userIDKey key = "userID"
-const rolesKey key = "rolesID"
+const roleKey key = "roleID"
 
 func AuthMiddleware(db *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -25,14 +26,15 @@ func AuthMiddleware(db *sql.DB) func(http.Handler) http.Handler {
 
 			// userID, err := jwt_utils.ValidateJWT(token)
 
-			userID, roles, err := jwt_utils.ValidateAccessJWT(token)
+			userID, role, err := jwt_utils.ValidateJWT(token)
 			if err != nil {
+				fmt.Println(err.Error())
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
 			ctx := context.WithValue(r.Context(), userIDKey, userID)
-			ctx = context.WithValue(ctx, rolesKey, roles)
+			ctx = context.WithValue(ctx, roleKey, role)
 			next.ServeHTTP(w, r.WithContext(ctx))
 
 		})
@@ -48,10 +50,10 @@ func GetUserID(r *http.Request) string {
 	return ""
 }
 
-func GetUserRoles(r *http.Request) []string {
-	roles := r.Context().Value(rolesKey)
-	if roles, ok := roles.([]string); ok {
-		return roles
+func GetUserRole(r *http.Request) string {
+	role := r.Context().Value(roleKey)
+	if role, ok := role.(string); ok {
+		return role
 	}
-	return nil
+	return ""
 }

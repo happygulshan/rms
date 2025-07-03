@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"net/http"
 	"rms/models"
-	"rms/services"
 	"time"
 
 	"log"
@@ -45,14 +44,13 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("refresh token:", refreshToken)
 
 	// Validate the refresh token
-	userID, err := jwt_utils.ValidateJWT(refreshToken)
+	userID, role, err := jwt_utils.ValidateJWT(refreshToken)
 	if err != nil {
 		http.Error(w, "invalid refresh token", http.StatusUnauthorized)
 		return
 	}
 
-	userRoles := services.GetUserRoles(h.DB, userID)
-	access_token, err := jwt_utils.GenerateAccessJWT(userID, userRoles)
+	access_token, err := jwt_utils.GenerateAccessJWT(userID, role)
 	if err != nil {
 		http.Error(w, "failed to generate login access token", http.StatusInternalServerError)
 		return
@@ -137,10 +135,10 @@ func (h *Handler) ProtectedCreateUser(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
 
 	// getting role of logged in user
-	userRoles := middleware.GetUserRoles(r)
+	userRole := middleware.GetUserRole(r)
 
 	// logged in user priority
-	userPriority := utils.GetUserPriority(userRoles)
+	userPriority := utils.RolePriorityMap[userRole]
 
 	// priority for the role creation
 	rolePriority, exists := utils.RolePriorityMap[user.Role]
@@ -206,21 +204,26 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.Role == "" {
+		user.Role = "user"
+	}
+
 	givenPass := user.Password
 	err := dbhelper.GetUserDetails(h.DB, &user)
 	if err != nil {
-		http.Error(w, "invalid email or password", http.StatusUnauthorized)
+		fmt.Println(err.Error())
+		http.Error(w, "invalid email or role", http.StatusUnauthorized)
 		return
 	}
 
 	// Compare the provided password with the hashed one
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(givenPass)); err != nil {
-		http.Error(w, "invalid email or password", http.StatusUnauthorized)
+		http.Error(w, "invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	userRoles := services.GetUserRoles(h.DB, user.Id)
-	accessToken, err := jwt_utils.GenerateAccessJWT(user.Id, userRoles)
+	// userRoles := services.GetUserRoles(h.DB, user.Id)
+	accessToken, err := jwt_utils.GenerateAccessJWT(user.Id, user.Role)
 	log.Println(err)
 	if err != nil {
 		http.Error(w, "failed to generate login access token", http.StatusInternalServerError)
@@ -228,7 +231,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate refresh token
-	refreshToken, err := jwt_utils.GenerateRefreshJWT(user.Id)
+	refreshToken, err := jwt_utils.GenerateRefreshJWT(user.Id, user.Role)
 	if err != nil {
 		http.Error(w, "failed to generate login refresh token", http.StatusInternalServerError)
 		return

@@ -19,10 +19,10 @@ func (h *Handler) CreateDish(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
 
 	//Get user roles
-	userRoles := middleware.GetUserRoles(r)
+	userRole := middleware.GetUserRole(r)
 
 	// logged in user priority
-	userPriority := utils.GetUserPriority(userRoles)
+	userPriority := utils.RolePriorityMap[userRole]
 	fmt.Println(userPriority)
 	//Check if user has permission
 	if userPriority < 2 {
@@ -34,7 +34,7 @@ func (h *Handler) CreateDish(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	// If subadmin, verify ownership of restaurant
-	if utils.HasOnlySubadminPrivileges(userRoles) {
+	if userRole == "subadmin" {
 		createdBy, err := dbhelper.RestaurantCreatedBy(h.DB, resID)
 		if err != nil {
 			http.Error(w, "invalid restaurant ID", http.StatusBadRequest)
